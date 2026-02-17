@@ -1,9 +1,23 @@
 # テスト
 
+## 前提条件
+
+本ルールは以下のツールがプロジェクトに導入されていることを前提とする:
+
+- Vitest（ユニット/統合テスト）
+- React Testing Library（コンポーネントテスト）
+- Playwright（E2Eテスト）
+
+導入コマンド例:
+
+```bash
+npm install -D vitest @testing-library/react @testing-library/user-event @playwright/test
+```
+
 ## TDDワークフロー
 
-理由: テストを先に書くことで、仕様の明確化とリグレッション防止を同時に実現する
-ルール: 実装コードより先にテストを書く（Red-Green-Refactor サイクル）
+テストを先に書くことで仕様を明確化し、リグレッションを防止する。
+実装コードより先にテストを書く（Red-Green-Refactor サイクル）。
 
 1. **Red**: 失敗するテストを書く（期待する振る舞いを定義）
 2. **Green**: テストが通る最小限の実装を書く
@@ -29,12 +43,15 @@
 6. **不要**: propsを受け取って表示するだけの純粋表示コンポーネント（E2Eで間接的にカバー）
 7. **不要**: Tailwindクラスを当てるだけの薄いUIラッパー
 
+上記1～5はすべて必須。リソースが限られる場合は番号順に優先する。
+
 判断基準: そのコンポーネントに**条件分岐やロジックがあるか**。なければテスト不要。
 
 ## カバレッジ要件
 
 - 最低 **80%** の行カバレッジ (line coverage) を維持する
 - カバレッジ計測コマンド: `npx vitest --coverage`
+- カバレッジプロバイダ: `v8`（`@vitest/coverage-v8` を使用）
 - カバレッジレポート形式: `text`（ターミナル表示）+ `html`（詳細確認用）
 - カバレッジ設定は `vitest.config.ts` の `coverage` セクションで管理する
 - ロジックを持たない純粋表示コンポーネントはカバレッジ対象から除外してよい
@@ -122,7 +139,20 @@ describe('TodoList', () => {
 })
 ```
 
+### 非同期処理のエラーテスト
+
+```typescript
+import { describe, it, expect } from 'vitest'
+
+it('無効な入力でエラーをスローする', async () => {
+  await expect(asyncOperation(invalidInput)).rejects.toThrow('期待するエラーメッセージ')
+})
+```
+
 ### E2Eテスト
+
+Playwrightの設定で `baseURL` を指定する（`playwright.config.ts` で `use: { baseURL: 'http://localhost:3000' }`）。
+`page.goto('/')` は `baseURL` からの相対パスとして解決される。
 
 ```typescript
 import { test, expect } from '@playwright/test'
@@ -145,6 +175,12 @@ test('タスクの追加から完了までの一連操作', async ({ page }) => 
 
 ## モック方針
 
+### テスト分離の原則
+
+- 各テストは他のテストに依存しない（実行順序に依存しない）
+- `beforeEach` で状態を初期化し、`afterEach` で副作用をクリーンアップする
+- テスト間でグローバル状態を共有しない
+
 ### localStorage のモック
 
 本プロジェクトはlocalStorageでデータ永続化するため、テストでは以下のようにモックする:
@@ -153,6 +189,7 @@ test('タスクの追加から完了までの一連操作', async ({ page }) => 
 import { beforeEach, vi } from 'vitest'
 
 const localStorageMock = (() => {
+  // モックの内部状態管理のため、イミュータブルパターンの例外としてletを使用
   let store: Record<string, string> = {}
   return {
     getItem: vi.fn((key: string) => store[key] ?? null),
@@ -185,6 +222,15 @@ beforeEach(() => {
 ## 検証レポート
 
 実装完了時に以下の検証を実行し、結果をユーザーに報告する。
+
+### 検証ツールの前提
+
+以下のツールがプロジェクトに導入されていること:
+
+- ESLint（静的解析）
+- Prettier（コードフォーマット）
+
+設定ファイルが未整備の場合は、検証項目4・5をスキップしてよい。
 
 ### 実行する検証
 
