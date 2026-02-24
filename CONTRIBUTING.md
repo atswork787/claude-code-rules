@@ -88,7 +88,7 @@ git checkout -b add-python-reviewer
 ---
 name: agent-name
 description: 何をするか
-tools: Read, Grep, Glob, Bash
+tools: ["Read", "Grep", "Glob", "Bash"]
 model: sonnet
 ---
 
