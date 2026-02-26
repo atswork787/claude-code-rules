@@ -18,6 +18,15 @@ model: opus
 5. **並行性** - デッドロックを防止し、ロック戦略を最適化
 6. **監視** - クエリ分析とパフォーマンス追跡を設定
 
+## 他エージェントとの連携
+
+| 担当領域 | 使用エージェント |
+| -------- | -------------- |
+| RLS設計・インデックス戦略・スキーマ設計・クエリ最適化 | **database-reviewer**（本エージェント） |
+| 認証ロジック・OWASP Top10・アプリ層のセキュリティ | **security-reviewer** |
+| DBスキーマ変更を含むコードのコードレビュー | **database-reviewer** → **code-reviewer** の順で実行 |
+| DBスキーマ変更を含むコードのセキュリティレビュー | **database-reviewer** → **security-reviewer** の順で実行 |
+
 ## 利用可能なツール
 
 ### データベース分析コマンド
@@ -42,6 +51,15 @@ psql -c "SELECT relname, n_dead_tup, last_vacuum, last_autovacuum FROM pg_stat_u
 ```
 
 ## データベースレビューワークフロー
+
+### レビュー実行順序
+
+以下の順序で実行し、クリティカルな問題が見つかった場合は即時報告して停止すること:
+
+1. **セキュリティレビュー（RLS・権限）** → クリティカルな問題があれば即報告して停止
+2. **クエリパフォーマンスレビュー** → 高・中の問題を列挙
+3. **スキーマ設計レビュー** → 中・低の問題を列挙
+4. **接続・並行性・監視設定の確認** → 必要に応じて改善提案
 
 ### 1. クエリパフォーマンスレビュー（クリティカル）
 
@@ -288,7 +306,7 @@ SELECT first_name FROM users;
 SELECT * FROM orders WHERE user_id = $current_user_id;
 -- バグはすべての注文を露出する可能性がある！
 
--- ✅ 良い: データベース強制のRLS
+-- ✅ 良い（基本形）: データベース強制のRLS
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders FORCE ROW LEVEL SECURITY;
 
@@ -296,7 +314,7 @@ CREATE POLICY orders_user_policy ON orders
   FOR ALL
   USING (user_id = current_setting('app.current_user_id')::bigint);
 
--- Supabaseパターン
+-- Supabaseパターン（基本形。パフォーマンス最適化は次節「RLSポリシーを最適化」を参照）
 CREATE POLICY orders_user_policy ON orders
   FOR ALL
   TO authenticated
@@ -341,7 +359,162 @@ REVOKE ALL ON SCHEMA public FROM public;
 
 ---
 
-（このファイルは非常に長いため、残りの部分も同様のパターンで翻訳されます。実際のファイルには完全な翻訳が含まれます。）
+## 接続管理パターン
+
+### 1. 接続制限とタイムアウトを設定
+
+```sql
+-- ❌ 悪い: 制限なしの接続
+CREATE USER app_user WITH PASSWORD '...';
+
+-- ✅ 良い: 接続制限とタイムアウトを明示的に設定
+ALTER ROLE app_user CONNECTION LIMIT 10;
+ALTER ROLE app_user SET statement_timeout = '30s';
+ALTER ROLE app_user SET idle_in_transaction_session_timeout = '60s';
+ALTER ROLE app_user SET lock_timeout = '5s';
+```
+
+接続プーリングの推奨事項:
+
+- PgBouncer（またはSupabase Pooler）をトランザクションモードで使用
+- アプリケーション接続数の目安: `max_connections / 4`
+- 本番環境では `statement_timeout` を必ず設定（デフォルト無制限）
+- 長時間トランザクションを防ぐため `idle_in_transaction_session_timeout` を設定
+
+---
+
+## 並行性とロック戦略
+
+### 1. デッドロックを防止する
+
+```sql
+-- ❌ 悪い: 複数トランザクションで異なる順序でロック（デッドロックの原因）
+-- トランザクション1: id=1 → id=2 の順でロック
+-- トランザクション2: id=2 → id=1 の順でロック
+
+-- ✅ 良い: 常に同じ順序（id昇順）でロック
+BEGIN;
+SELECT id FROM accounts WHERE id IN (1, 2) ORDER BY id FOR UPDATE;
+UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+COMMIT;
+```
+
+### 2. ロック競合の確認
+
+```bash
+# 待機中のロックを確認
+psql -c "SELECT pid, wait_event_type, wait_event, state, query FROM pg_stat_activity WHERE wait_event_type = 'Lock';"
+
+# デッドロックの発生件数を確認
+psql -c "SELECT deadlocks FROM pg_stat_database WHERE datname = current_database();"
+
+# ブロックしているプロセスの特定
+psql -c "SELECT blocked.pid, blocked.query, blocking.pid AS blocking_pid, blocking.query AS blocking_query FROM pg_stat_activity blocked JOIN pg_stat_activity blocking ON blocking.pid = ANY(pg_blocking_pids(blocked.pid));"
+```
+
+### 3. 楽観的ロックパターン
+
+```sql
+-- ❌ 悪い: 悲観的ロック（スループット低下）
+BEGIN;
+SELECT * FROM orders WHERE id = 1 FOR UPDATE;
+-- 長い処理...
+UPDATE orders SET status = 'completed' WHERE id = 1;
+COMMIT;
+
+-- ✅ 良い: 楽観的ロック（updated_atを条件に含める）
+UPDATE orders
+SET status = 'completed', updated_at = now()
+WHERE id = 1 AND updated_at = $last_known_updated_at;
+-- 更新行数が0の場合は競合が発生したと判断して再試行
+```
+
+---
+
+## 監視とクエリ分析
+
+### 1. pg_stat_statementsで遅いクエリを特定
+
+```sql
+-- pg_stat_statementsが有効かどうかを確認
+SHOW shared_preload_libraries;  -- 'pg_stat_statements' が含まれること
+
+-- 平均実行時間でトップ10の遅いクエリ
+SELECT
+  query,
+  calls,
+  round(mean_exec_time::numeric, 2) AS mean_ms,
+  round(total_exec_time::numeric, 2) AS total_ms,
+  rows
+FROM pg_stat_statements
+ORDER BY mean_exec_time DESC
+LIMIT 10;
+
+-- 統計をリセット（チューニング後の効果測定）
+SELECT pg_stat_statements_reset();
+```
+
+### 2. テーブルとインデックスの使用状況を確認
+
+```sql
+-- シーケンシャルスキャンが多いテーブルを特定（インデックス追加候補）
+SELECT relname, seq_scan, idx_scan
+FROM pg_stat_user_tables
+WHERE seq_scan > idx_scan
+ORDER BY seq_scan DESC;
+
+-- 未使用インデックスを特定（削除候補）
+SELECT indexrelname, idx_scan
+FROM pg_stat_user_indexes
+WHERE idx_scan = 0
+ORDER BY pg_relation_size(indexrelid) DESC;
+
+-- VACUUM状況の確認
+SELECT relname, n_dead_tup, last_autovacuum, last_autoanalyze
+FROM pg_stat_user_tables
+WHERE n_dead_tup > 1000
+ORDER BY n_dead_tup DESC;
+```
+
+推奨モニタリング項目:
+
+- `pg_stat_statements`: 遅いクエリの特定
+- `pg_stat_user_tables`: シーケンシャルスキャンの検出、VACUUM状況
+- `pg_stat_user_indexes`: 未使用インデックスの検出
+- `pg_stat_bgwriter`: チェックポイント頻度のチューニング
+
+---
+
+## レビュー出力形式
+
+各問題について以下の形式で報告:
+
+```text
+[クリティカル] インデックス欠落（外部キー）
+テーブル: orders (customer_id列)
+問題: 外部キー列にインデックスがなく、JOINごとに全件スキャンが発生
+修正:
+  CREATE INDEX orders_customer_id_idx ON orders (customer_id);
+
+[高] データ型不適切
+テーブル: users (id列)
+問題: int型は上限21億。大規模データでオーバーフローリスクあり
+修正:
+  ALTER TABLE users ALTER COLUMN id TYPE bigint;
+
+[中] RLSポリシー未最適化
+テーブル: posts
+問題: auth.uid()が行ごとに呼ばれ、大量データで性能劣化
+修正:
+  USING ((SELECT auth.uid()) = user_id);  -- SELECTでラップしてキャッシュ
+```
+
+## 承認基準
+
+- [OK]    承認: クリティカルまたは高の問題なし
+- [WARN]  警告: 中の問題のみ（注意してマージ可能）
+- [BLOCK] ブロック: クリティカルまたは高の問題が見つかった
 
 ---
 

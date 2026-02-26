@@ -5,7 +5,7 @@
 `~/.claude/agents/`（Windowsの場合: `%USERPROFILE%\.claude\agents\`）に配置:
 
 | エージェント | 目的 | 使用する場合 |
-|-------|---------|-------------|
+| ------- | --------- | ----------- |
 | planner | 実装計画 | 複雑な機能を実装する時、リファクタリングする時 |
 | architect | システム設計 | アーキテクチャを決定する時 |
 | tdd-guide | テスト駆動開発 | 新機能を追加する時、バグを修正する時 |
@@ -15,10 +15,12 @@
 | e2e-runner | E2Eテスト | 重要なユーザーフローをテストする時 |
 | refactor-cleaner | デッドコードクリーンアップ | コードをメンテナンスする時 |
 | doc-updater | ドキュメント | ドキュメントを更新する時 |
+| database-reviewer | DB最適化・RLSレビュー | SQLクエリ、スキーマ設計、DBパフォーマンス問題発生時 |
 
 ## 自動エージェント起動
 
 以下の条件ではユーザーの指示を待たずにエージェントを起動:
+
 1. 複雑な機能リクエスト - **planner**エージェントを使用
 2. コード変更後 - **code-reviewer**エージェントを使用
 3. バグ修正または新機能 - **tdd-guide**エージェントを使用
@@ -34,6 +36,7 @@
 | バグ修正 | tdd-guide → code-reviewer → security-reviewer |
 | リファクタリング | planner → refactor-cleaner → code-reviewer |
 | セキュリティ関連変更 | security-reviewer → planner → tdd-guide → code-reviewer → security-reviewer |
+| DBスキーマ変更 | database-reviewer → security-reviewer |
 
 ## エージェント依存関係
 
@@ -48,6 +51,7 @@
 | e2e-runner | - | code-reviewer | テスト結果（Pass/Fail + ログ） |
 | refactor-cleaner | - | planner | 修正コード |
 | doc-updater | - | code-reviewer | 更新ドキュメント（Markdown） |
+| database-reviewer | - | security-reviewer | レビューレポート（テキスト） |
 
 ## エラー時の対応
 
