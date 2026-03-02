@@ -174,6 +174,8 @@ it('無効な入力でエラーをスローする', async () => {
 Playwrightの設定で `baseURL` を指定する（`playwright.config.ts` で `use: { baseURL: 'http://localhost:3000' }`）。
 `page.goto('/')` は `baseURL` からの相対パスとして解決される。
 
+> Agent Browserを用いたセマンティックテストや、不安定なテストの隔離・アーティファクト管理など高度なE2E運用については `agents/e2e-runner.md` を参照すること。本ルールはPlaywright標準の方針を定め、`agents/e2e-runner.md` はその拡張として機能する。
+
 ```typescript
 import { test, expect } from '@playwright/test'
 
@@ -273,7 +275,7 @@ beforeEach(() => {
 
 検証完了後、以下の形式でユーザーに報告する:
 
-```
+```markdown
 ## 検証結果
 
 | 検証項目 | 結果 | 詳細 |
