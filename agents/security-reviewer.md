@@ -17,6 +17,7 @@ model: opus
 4. **認証/認可** - 適切なアクセス制御を検証
 5. **依存関係セキュリティ** - 脆弱なnpmパッケージをチェック
 6. **セキュリティベストプラクティス** - 安全なコーディングパターンを強制
+7. **レート制限** - APIエンドポイントへの過剰アクセス防止の検証
 
 ## 利用可能なツール
 
@@ -38,8 +39,8 @@ npm audit --audit-level=high
 # ファイル内の秘密情報をチェック
 grep -r "api[_-]?key\|password\|secret\|token" --include="*.js" --include="*.ts" --include="*.json" .
 
-# 一般的なセキュリティ問題をチェック
-npx eslint . --plugin security
+# 一般的なセキュリティ問題をチェック（.eslintrc に eslint-plugin-security 設定済みの場合）
+npx eslint src/
 
 # ハードコードされた秘密情報をスキャン
 npx trufflehog filesystem . --json
@@ -147,7 +148,10 @@ if (!apiKey) {
 const query = `SELECT * FROM users WHERE id = ${userId}`
 await db.query(query)
 
-// ✅ 正しい: パラメータ化されたクエリ
+// ✅ 正しい: パラメータ化されたクエリ（汎用）
+await db.query('SELECT * FROM users WHERE id = $1', [userId])
+
+// ✅ 正しい: パラメータ化されたクエリ（Supabase ORMの場合）
 const { data } = await supabase
   .from('users')
   .select('*')
@@ -207,7 +211,7 @@ const isValid = await bcrypt.compare(password, hashedPassword)
 
 ## セキュリティレビューレポート形式
 
-```markdown
+````markdown
 # セキュリティレビューレポート
 
 **ファイル/コンポーネント:** [path/to/file.ts]
@@ -220,7 +224,7 @@ const isValid = await bcrypt.compare(password, hashedPassword)
 - **高い問題:** Y
 - **中程度の問題:** Z
 - **低い問題:** W
-- **リスクレベル:** 🔴 高 / 🟡 中 / 🟢 低
+- **リスクレベル:** 高 / 中 / 低
 
 ## クリティカルな問題（即座に修正）
 
@@ -242,7 +246,7 @@ const isValid = await bcrypt.compare(password, hashedPassword)
 
 **修復:**
 ```javascript
-// ✅ 安全な実装
+// 安全な実装
 ```
 
 **参考資料:**
@@ -250,6 +254,7 @@ const isValid = await bcrypt.compare(password, hashedPassword)
 - CWE: [番号]
 
 ---
+````
 
 ## プルリクエストセキュリティレビューテンプレート
 
@@ -259,7 +264,7 @@ PRをレビューする際、インラインコメントを投稿:
 ## セキュリティレビュー
 
 **レビュワー:** security-reviewerエージェント
-**リスクレベル:** 🔴 高 / 🟡 中 / 🟢 低
+**リスクレベル:** 高 / 中 / 低
 
 ### ブロッキング問題
 - [ ] **クリティカル**: [説明] @ `file:line`
@@ -280,20 +285,21 @@ PRをレビューする際、インラインコメントを投稿:
 ---
 
 > Claude Codeセキュリティレビュワーエージェントによるセキュリティレビュー
-> 質問についてはdocs/SECURITY.mdを参照
+> 質問についてはdocs/SECURITY.mdを参照（ファイルが存在しない場合は無視すること）
 ```
 
 ## 成功指標
 
 セキュリティレビュー後:
-- ✅ クリティカルな問題が見つからない
-- ✅ すべての高い問題が対処された
-- ✅ セキュリティチェックリストが完了
-- ✅ コードに秘密情報なし
-- ✅ 依存関係が最新
-- ✅ テストにセキュリティシナリオが含まれる
-- ✅ ドキュメントが更新された
+
+- [ ] クリティカルな問題が見つからない
+- [ ] すべての高い問題が対処された
+- [ ] セキュリティチェックリストが完了
+- [ ] コードに秘密情報なし
+- [ ] 依存関係が最新
+- [ ] テストにセキュリティシナリオが含まれる
+- [ ] ドキュメントが更新された
 
 ---
 
-**覚えておく**: セキュリティはオプションではありません。特に実際のお金を扱うプラットフォームでは。1つの脆弱性がユーザーに実際の金銭的損失をもたらす可能性があります。徹底的に、疑い深く、積極的に行動してください。
+**重要**: セキュリティはオプションではない。特に実際のお金を扱うプラットフォームでは、1つの脆弱性がユーザーに実際の金銭的損失をもたらす可能性がある。徹底的・疑い深く・積極的に対処すること。
