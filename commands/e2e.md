@@ -53,6 +53,19 @@ e2e-runnerエージェントは:
 4. 最初の結果をクリック
 5. マーケット詳細ページが読み込まれることを検証
 6. チャートがレンダリングされることを検証
+
+# 生成されるPlaywrightテスト（抜粋）
+
+test.describe('マーケット検索と表示フロー', () => {
+  test('検索結果からマーケット詳細に遷移できる', async ({ page }) => {
+    await page.goto('/markets')
+    await page.getByRole('searchbox').fill('テスト検索')
+    await expect(page.getByRole('list', { name: '検索結果' })).toBeVisible()
+    await page.getByRole('listitem').first().click()
+    await expect(page).toHaveURL(/\/markets\//)
+    await expect(page.getByRole('img', { name: 'チャート' })).toBeVisible()
+  })
+})
 ```
 
 ## テストアーティファクト
@@ -74,7 +87,8 @@ e2e-runnerエージェントは:
 
 **すべきこと:**
 - ✅ 保守性のためにPage Object Modelを使用
-- ✅ セレクタにdata-testid属性を使用
+- ✅ アクセシビリティベースのロケーターを優先（getByRole、getByLabel等を優先し、data-testidは上記で特定できない場合の代替手段として使用）
+- ✅ テスト用認証情報は環境変数（process.env）から読み込む
 - ✅ 任意のタイムアウトではなくAPIレスポンスを待つ
 - ✅ 重要なユーザージャーニーをエンドツーエンドでテスト
 - ✅ メインにマージする前にテストを実行
@@ -92,6 +106,8 @@ e2e-runnerエージェントは:
 
 このコマンドは以下のエージェントを呼び出します:
 `~/.claude/agents/e2e-runner.md`
+
+テストの基本方針は `rules/testing.md` が定めており、このエージェントはその拡張として機能します。矛盾がある場合は `rules/testing.md` を優先してください。
 
 ## クイックコマンド
 
