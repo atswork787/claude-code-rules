@@ -1,6 +1,6 @@
 # オーケストレートコマンド
 
-複雑なタスクのための順次エージェントワークフロー。
+複雑なタスクのための順次・並列エージェントワークフロー。
 
 ## 使用法
 
@@ -10,40 +10,50 @@
 
 ### feature
 完全な機能実装ワークフロー:
+
 ```
-planner -> tdd-guide -> code-reviewer -> security-reviewer
+planner -> architect -> tdd-guide -> (code-reviewer || security-reviewer)
 ```
+
+※ code-reviewer と security-reviewer は独立しているため並列実行可能
 
 ### bugfix
 バグ調査と修正ワークフロー:
+
 ```
-explorer -> tdd-guide -> code-reviewer
+tdd-guide -> (code-reviewer || security-reviewer)
 ```
+
+※ code-reviewer と security-reviewer は独立しているため並列実行可能
 
 ### refactor
 安全なリファクタリングワークフロー:
+
 ```
-architect -> code-reviewer -> tdd-guide
+planner -> refactor-cleaner -> code-reviewer
 ```
 
 ### security
 セキュリティ重視のレビュー:
+
 ```
-security-reviewer -> code-reviewer -> architect
+security-reviewer -> planner -> tdd-guide -> code-reviewer -> security-reviewer
 ```
+
+※ 最初の security-reviewer が初期監査、最後の security-reviewer が最終承認
 
 ## 実行パターン
 
 ワークフロー内の各エージェントについて:
 
-1. **エージェントを呼び出す** 前のエージェントからのコンテキスト付き
-2. **出力を収集** 構造化されたハンドオフドキュメントとして
-3. **次のエージェントに渡す** チェーン内
-4. **結果を集約** 最終レポートに
+1. **エージェントを呼び出す** ハンドオフドキュメントをコンテキストとして付与
+2. **出力を収集** 「ハンドオフドキュメント形式」に従い構造化して記録
+3. **次のエージェントに渡す** 収集したハンドオフドキュメントを次の入力に含める
+4. **結果を集約** 全エージェントの出力を最終レポートに統合
 
 ## ハンドオフドキュメント形式
 
-エージェント間で、ハンドオフドキュメントを作成:
+各エージェントは実行後、次のエージェントへのハンドオフドキュメントを以下の形式で作成すること:
 
 ```markdown
 ## ハンドオフ: [前のエージェント] -> [次のエージェント]
@@ -76,24 +86,23 @@ security-reviewer -> code-reviewer -> architect
    - 要件を分析
    - 実装計画を作成
    - 依存関係を特定
-   - 出力: `ハンドオフ: planner -> tdd-guide`
+   - 出力: `ハンドオフ: planner -> architect`
 
-2. **TDDガイドエージェント**
+2. **アーキテクトエージェント**
    - プランナーのハンドオフを読む
+   - システム設計・アーキテクチャを決定
+   - 技術的トレードオフを評価
+   - 出力: `ハンドオフ: architect -> tdd-guide`
+
+3. **TDDガイドエージェント**
+   - アーキテクトのハンドオフを読む
    - まずテストを書く
    - テストを合格させるために実装
-   - 出力: `ハンドオフ: tdd-guide -> code-reviewer`
+   - 出力: `ハンドオフ: tdd-guide -> code-reviewer, security-reviewer`
 
-3. **コードレビューワーエージェント**
-   - 実装をレビュー
-   - 問題をチェック
-   - 改善を提案
-   - 出力: `ハンドオフ: code-reviewer -> security-reviewer`
-
-4. **セキュリティレビューワーエージェント**
-   - セキュリティ監査
-   - 脆弱性チェック
-   - 最終承認
+4. **コードレビューワーエージェント** / **セキュリティレビューワーエージェント**（並列実行）
+   - （code-reviewer）実装をレビュー、問題をチェック、改善を提案
+   - （security-reviewer）セキュリティ監査、脆弱性チェック
    - 出力: 最終レポート
 
 ## 最終レポート形式
@@ -103,7 +112,7 @@ security-reviewer -> code-reviewer -> architect
 ====================
 ワークフロー: feature
 タスク: ユーザー認証を追加
-エージェント: planner -> tdd-guide -> code-reviewer -> security-reviewer
+エージェント: planner -> architect -> tdd-guide -> (code-reviewer || security-reviewer)
 
 要約
 -------
@@ -112,6 +121,7 @@ security-reviewer -> code-reviewer -> architect
 エージェント出力
 -------------
 プランナー: [要約]
+アーキテクト: [要約]
 TDDガイド: [要約]
 コードレビューワー: [要約]
 セキュリティレビューワー: [要約]
@@ -148,14 +158,34 @@ TDDガイド: [要約]
 出力を単一のレポートに結合
 ```
 
-## 引数
+## 引数一覧
 
-$ARGUMENTS:
-- `feature <description>` - 完全な機能ワークフロー
-- `bugfix <description>` - バグ修正ワークフロー
-- `refactor <description>` - リファクタリングワークフロー
-- `security <description>` - セキュリティレビューワークフロー
-- `custom <agents> <description>` - カスタムエージェントシーケンス
+このコマンドは以下の引数を受け付ける:
+
+| 引数 | 形式 | 説明 |
+| ---- | ---- | ---- |
+| `feature` | `feature <description>` | 完全な機能実装ワークフロー |
+| `bugfix` | `bugfix <description>` | バグ調査と修正ワークフロー |
+| `refactor` | `refactor <description>` | 安全なリファクタリングワークフロー |
+| `security` | `security <description>` | セキュリティ重視のレビューワークフロー |
+| `custom` | `custom "<agent1,agent2,...>" <description>` | カスタムエージェントシーケンス（エージェント名はカンマ区切り） |
+
+## 利用可能なエージェント
+
+`custom` ワークフローや各ワークフロー定義で使用できるエージェントの一覧。詳細は `rules/agents.md` を参照。
+
+| エージェント名 | 役割 |
+| ------------- | ---- |
+| `planner` | 実装計画の作成・要件分析 |
+| `architect` | システム設計・アーキテクチャ決定 |
+| `tdd-guide` | テスト駆動開発の実施 |
+| `code-reviewer` | コード品質レビュー |
+| `security-reviewer` | セキュリティ脆弱性の検出 |
+| `refactor-cleaner` | デッドコードの除去・リファクタリング |
+| `build-error-resolver` | ビルドエラーの修正 |
+| `e2e-runner` | E2Eテストの実行 |
+| `doc-updater` | ドキュメントの更新 |
+| `database-reviewer` | DBスキーマ・クエリの最適化 |
 
 ## カスタムワークフローの例
 
@@ -163,10 +193,22 @@ $ARGUMENTS:
 /orchestrate custom "architect,tdd-guide,code-reviewer" "キャッシング層を再設計"
 ```
 
+## エラー処理
+
+エージェントが失敗した場合の動作方針。詳細は `rules/agents.md` の「エラー時の対応」を参照。
+
+| エラー種類 | 対応 |
+| ---------- | ---- |
+| エージェントが存在しない | ユーザーに報告して処理を停止する |
+| タイムアウト | 最大2回リトライ後、ユーザーに確認 |
+| テスト失敗（tdd-guide） | 次のエージェントへは進まず、ユーザーに報告する |
+| クリティカルなセキュリティ問題（security-reviewer） | 処理を停止し、ユーザーに報告する |
+| コードレビューで高以上の問題（code-reviewer） | 次のエージェントへは進まず、ユーザーに確認する |
+
 ## ヒント
 
 1. **複雑な機能にはplannerから始める**
 2. **マージ前に常にcode-reviewerを含める**
 3. **認証/支払い/PIIにはsecurity-reviewerを使用**
 4. **ハンドオフを簡潔に保つ** - 次のエージェントが必要なものに焦点
-5. **必要に応じてエージェント間で検証を実行**
+5. **コードの変更を伴う場合はエージェント間でテスト実行・検証を行う**
